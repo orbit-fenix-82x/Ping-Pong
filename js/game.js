@@ -8,6 +8,7 @@ import { NET, nsend, cleanup as netCleanup } from './online.js';
 import { $, esc, clamp, sfx, vib, sleep, toast } from './util.js';
 import { lookFor, padStats, ZERO_ST } from './data/catalog.js';
 import { music } from './audio.js';
+import { avTag, oppTag } from './design.js';
 
 let stage = null, M = null, G = null;
 export const active = () => !!G;
@@ -44,16 +45,57 @@ export async function start(opts) {
 }
 
 /* ---------------------------------------------------------------- HUD */
+function tagOf(i) {
+  const me = G.guest ? 1 : 0;
+  if (G.mode === 'local') return i === 0 ? avTag(P.av, 28) : oppTag('', false, 28, '2');
+  return i === me ? avTag(P.av, 28) : oppTag(G.names[i], !G.online, 28);
+}
 function buildHud(sideLeft) {
   const h = document.createElement('div'); h.id = 'hud';
   const nm = (i) => esc(G.names[i]);
   const li = sideLeft, ri = 1 - sideLeft;
   h.innerHTML = '<div class="hud-top"><button class="b3d ghost ib3d" id="hPause" aria-label="' + esc(t('pause')) + '">❚❚</button>' +
-    '<div class="score3d"><span class="nm">' + nm(li) + '</span><span class="n a" id="hs0">0</span><span class="sep">:</span><span class="n b" id="hs1">0</span><span class="nm">' + nm(ri) + '</span></div>' +
+    '<div class="score3d"><div class="pl" id="hPlL">' + tagOf(li) + '<span class="nm">' + nm(li) + '</span></div><span class="n a" id="hs0">0</span><span class="sep">:</span><span class="n b" id="hs1">0</span><div class="pl" id="hPlR">' + tagOf(ri) + '<span class="nm">' + nm(ri) + '</span></div></div>' +
     '<div class="tag">' + (G.mode === 'ranked' ? '<span class="qtag">🏆 ' + esc(t('ranked')) + '</span>' : '') + '</div></div>' +
-    (G.mode === 'ranked' ? '<div id="hTime" class="gtime">1:00</div>' : '') + '<div id="cdown"></div><div id="fxtxt"></div><div id="hFps" class="fps">-- FPS</div>';
+    (G.mode === 'ranked' ? '<div id="hTime" class="gtime">1:00</div>' : '') + '<div id="cdown"></div><div id="fxtxt"></div><div id="hStack"><div id="hMp"></div><div id="hFxC"></div></div><div class="fxcol" id="hFxL"></div><div class="fxcol" id="hFxR"></div><div id="hFps" class="fps">-- FPS</div>';
   $('app').appendChild(h); G.hud = h; G.sideLeft = sideLeft;
   $('hPause').onclick = () => { sfx('click'); pause(true); };
+}
+/* efectos activos (hielo, gigante, encoger, turbo/fuego, fantasma, curva) y aviso de punto de partido */
+const FX_MAX = { slow: 3.5, big: 7, small: 7, hot: 3, gh: 2, wob: 2.5 };
+function hudTick() {
+  const B = M.B, L = G.sideLeft, g = G.guest, items = [];
+  [0, 1].forEach((i) => {
+    const p = M.P[i], side = i === L ? 'l' : 'r';
+    if (p.slow > 0) items.push({ id: 's' + i, side, ic: '🧊', col: '#7fe3ff', v: g ? 1 : p.slow / FX_MAX.slow });
+    if (g ? p.h > 110 : p.big > 0) items.push({ id: 'b' + i, side, ic: '📏', col: '#4dff9a', v: g ? 1 : p.big / FX_MAX.big });
+    if (g ? p.h < 72 : p.small > 0) items.push({ id: 'm' + i, side, ic: '🔻', col: '#ff4d6d', v: g ? 1 : p.small / FX_MAX.small });
+  });
+  if (B) {
+    if (B.hot > 0) items.push({ id: 'h', side: 'c', ic: '🔥', col: '#ff9a1f', v: g ? 1 : B.hot / FX_MAX.hot });
+    if (B.gh > 0) items.push({ id: 'g', side: 'c', ic: '👻', col: '#e8e8ff', v: g ? 1 : B.gh / FX_MAX.gh });
+    if (B.wob > 0) items.push({ id: 'w', side: 'c', ic: '🌀', col: '#c06bff', v: B.wob / FX_MAX.wob });
+  }
+  const key = items.map((x) => x.id).join();
+  if (key !== G.fxKey) {
+    G.fxKey = key; G.fxB = {};
+    const html = { l: '', r: '', c: '' };
+    items.forEach((x) => { html[x.side] += '<div class="fxc" data-id="' + x.id + '" style="--c:' + x.col + '"><span>' + x.ic + '</span><i><b></b></i></div>'; });
+    ['L', 'R', 'C'].forEach((k) => { const el = $('hFx' + k); if (el) el.innerHTML = html[k.toLowerCase()]; });
+    items.forEach((x) => { const b = G.hud.querySelector('[data-id="' + x.id + '"] b'); if (b) G.fxB[x.id] = b; });
+  }
+  items.forEach((x) => { const b = G.fxB && G.fxB[x.id]; if (b) b.style.width = Math.round(clamp(x.v, 0, 1) * 100) + '%'; });
+  /* punto de partido: alguien va ganando y le falta 1 punto para terminar */
+  const w = M.win, sc = M.sc, me = G.mode === 'local' ? -1 : (G.guest ? 1 : 0);
+  const mp = [0, 1].map((i) => !M.over && sc[i] >= w - 1 && sc[i] > sc[1 - i]);
+  const mk = mp.join() + me;
+  if (mk !== G.mpKey) {
+    const first = G.mpKey === undefined; G.mpKey = mk;
+    const any = mp[0] || mp[1], el = $('hMp');
+    if (el) el.innerHTML = any ? '<span class="mpb' + (me >= 0 && mp[1 - me] ? ' bad' : '') + '">⚡ ' + esc(t('match_point')) + '</span>' : '';
+    const l = $('hPlL'), r = $('hPlR'); if (l) l.classList.toggle('mp', mp[L]); if (r) r.classList.toggle('mp', mp[1 - L]);
+    if (any && !first) sfx('hard');
+  }
 }
 const setScore = () => {
   const l = G.sideLeft, a = $('hs0'), b = $('hs1'); if (!a) return;
@@ -145,7 +187,8 @@ export function frame(dt) {
     }
     else if (e.k === 'wall') sfx('bounce');
     else if (e.k === 'point') {
-      sfx('point'); setScore(); if (!G.guest) { if (e.w === 0) G.myPts++; G.rally = 0; }
+      sfx('point'); setScore(); { const pl = $(e.w === G.sideLeft ? 'hPlL' : 'hPlR'); if (pl) { pl.classList.remove('pt'); void pl.offsetWidth; pl.classList.add('pt'); } }
+      if (!G.guest) { if (e.w === 0) G.myPts++; G.rally = 0; }
       if (G.mode === 'local' || e.w === (G.guest ? 1 : 0)) vib(40);
     } else if (e.k === 'ability') {
       say(t('ab_' + e.a), ABIL[e.a].col); sfx(e.a === 'turbo' || e.a === 'fuego' ? 'turbo' : 'whoosh'); if (!G.guest && e.who === 0) G.orbs++;
@@ -155,6 +198,7 @@ export function frame(dt) {
       finish(M.winner === 0, false, false, M.winner === -1);
     }
   }
+  if (!G.ended) hudTick();
   stage.frame(dt, M, { side: G.flip ? 1 : 0 });
 }
 export const matchRef = () => M;
@@ -189,7 +233,8 @@ const rpBase = () => Math.round((TI[rankOf(P.rp).t].cost || 320) * 0.22);       
 const lossBonus = (pts, b) => Math.round(b * ({ 4: 0.2, 5: 0.3, 6: 0.4 }[pts] || 0));              /* perder con 4+ puntos */
 const quitPenalty = (pts, b) => (pts >= 5 ? 0 : Math.round(b * 1.5 * (5 - pts) / 5));            /* rendirse: baja la multa con cada punto */
 function settle(mode, win, quit, draw) {
-  const r = { mode, win, quit: !!quit, rp0: P.rp, rp1: P.rp, d: 0, pc: 0, xp: 0, lvUp: 0, shield: false, boost: false, streak: P.streak, sc: M ? M.sc.slice() : [0, 0] };
+  const r = { mode, win, quit: !!quit, rp0: P.rp, rp1: P.rp, d: 0, pc: 0, xp: 0, lvUp: 0, shield: false, boost: false, streak: P.streak, sc: M ? M.sc.slice() : [0, 0],
+    rally: G.maxRally || 0, orbs: G.orbs || 0, g: G.guest ? 1 : 0, bot: !G.online && mode !== 'local', nm: mode === 'local' ? G.names.slice() : [P.name, G.guest ? G.names[0] : G.names[1]] };
   const pts = M ? M.sc[G.guest ? 1 : 0] : 0;
   if (mode !== 'local') P.games++;
   track('game'); if (G.myPts) track('point', G.myPts); if (G.maxRally) track('rally', G.maxRally); if (G.orbs) track('orb', G.orbs);
