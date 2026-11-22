@@ -17,6 +17,8 @@ async function load(code) {
   if (dicts[code]) return dicts[code];
   try { dicts[code] = (await import('./lang/' + code + '.js')).default; }
   catch (e) { console.warn('idioma no disponible:', code); dicts[code] = {}; }
+  try { const ex = (await import('./lang/extra.js')).default; dicts[code] = Object.assign({}, ex.es || {}, ex[code] || {}, dicts[code]); }   /* textos nuevos (si el idioma ya trae la clave, manda la suya) */
+  catch (e) { /* sin textos extra */ }
   return dicts[code];
 }
 
