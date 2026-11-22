@@ -12,6 +12,7 @@ import { openRanking, openFriends, openInbox, inboxCount, avatarHtml, verMark } 
 import { openAdmin } from './admin.js';
 import { invite, quickMatch } from './online.js';
 import * as Tuto from './tutorial.js';
+import { avTag, oppTag } from './design.js';
 import * as L3 from './lobby3d.js';   /* fondo 3D: mesa, red, pelota única rebotando */
 
 let H = null;               /* manejadores que da main.js: { play(opts), mode() } */
@@ -239,16 +240,24 @@ export function showResult(res, again) {
   if (!res || res.skip) { show(true); return; }
   show(true);
   const ranked = res.mode === 'ranked', r0 = rankOf(res.rp0), r1 = rankOf(res.rp1), up = ranked && res.win && r1.i > r0.i, dn = ranked && !res.win && r1.i < r0.i, tierUp = up && r1.t > r0.t;
-  const o = document.createElement('div'); o.id = 'result'; o.className = 'scr dim';
+  const o = document.createElement('div'); o.id = 'result'; o.className = 'scr dim ' + (res.win && !res.quit ? 'win' : 'lose');
+  const mi = res.g ? 1 : 0, nmv = res.nm || [P.name, t('rival')];
+  const vs = '<div class="vs"><div class="vp">' + avTag(P.av, 46) + '<span class="nmx">' + esc(nmv[0]) + '</span></div><div class="vsc"><b class="me">' + res.sc[mi] + '</b><span>:</span><b class="op">' + res.sc[1 - mi] + '</b></div><div class="vp">' + oppTag(nmv[1], res.bot, 46, res.mode === 'local' ? '2' : '') + '<span class="nmx">' + esc(nmv[1]) + '</span></div></div>';
+  const sts = [];
+  if (res.rally > 1) sts.push('<span class="chip">🏓 ' + esc(t('best_rally')) + ' <b>' + res.rally + '</b></span>');
+  if (res.orbs) sts.push('<span class="chip">✨ ' + esc(t('powers')) + ' <b>' + res.orbs + '</b></span>');
+  if (res.win && !res.quit && res.mode !== 'local' && res.streak >= 2) sts.push('<span class="chip">🔥 ' + esc(t('ach_streak', { n: res.streak })) + '</span>');
   const shown = ranked ? r0 : r1, gc = TI[(up ? r1 : r0).t].gl; o.style.setProperty('--gc', gc);
   const title = res.quit ? t('quit_done') : res.draw ? t('draw') : res.win ? t('victory') : t('defeat');
   o.innerHTML = (res.win && !res.quit ? '<div class="crown" style="position:relative;top:0;font-size:46px;animation:crown 1.2s .3s both">👑</div>' : '') +
     '<div class="stage"><i class="ring"></i><i class="ring r2"></i><i class="ring r3"></i><span id="rsB">' + (ranked ? badge(shown.t, shown.d, 190) : '<span style="font-size:120px">' + (res.win ? '🏆' : res.draw ? '🤝' : '💪') + '</span>') + '</span></div>' +
-    '<h2 style="color:' + (res.win && !res.quit ? 'var(--gold)' : '#ff9aa8') + '">' + esc(title) + '</h2><div class="muted" style="font-size:15px">' + res.sc[0] + ' : ' + res.sc[1] + '</div>' +
+    '<h2 style="color:' + (res.win && !res.quit ? 'var(--gold)' : '#ff9aa8') + '">' + esc(title) + '</h2>' + vs + (sts.length ? '<div class="stats">' + sts.join('') + '</div>' : '') +
     (ranked ? '<div class="pts ' + (res.d >= 0 ? 'up' : 'dn') + '" id="rsP">' + (res.d > 0 ? '+' : '') + '0 RP</div><div class="bar"><i id="rsBar"></i></div><div class="tiny" id="rsN">' + esc(rankName(r0)) + '</div>' : '') +
-    '<div class="rew">' + (res.pc ? '<span class="cur"><i class="coin3d">$</i>+' + res.pc + '</span>' : '') + (res.xp ? '<span class="chip">+' + res.xp + ' XP</span>' : '') + (res.shield ? '<span class="chip">🛡️ ' + esc(t('shield_used')) + '</span>' : '') + (res.boost ? '<span class="chip">🚀 ×1.5</span>' : '') + (res.lvUp ? '<span class="chip" style="color:var(--gold)">⬆ ' + esc(t('lv')) + ' ' + res.lvUp + '</span>' : '') + '</div>' +
+    '<div class="rew">' + (res.pc ? '<span class="cur"><i class="coin3d">$</i><b id="rsC">+0</b></span>' : '') + (res.xp ? '<span class="chip"><b id="rsX">+0</b> XP</span>' : '') + (res.shield ? '<span class="chip">🛡️ ' + esc(t('shield_used')) + '</span>' : '') + (res.boost ? '<span class="chip">🚀 ×1.5</span>' : '') + (res.lvUp ? '<span class="chip" style="color:var(--gold)">⬆ ' + esc(t('lv')) + ' ' + res.lvUp + '</span>' : '') + '</div>' +
     '<div class="btns"><button class="b3d blue lg" id="rsOk">' + esc(t('continue')) + '</button>' + (again ? '<button class="b3d green lg" id="rsAg">▶ ' + esc(t('play_again')) + '</button>' : '') + '</div>';
   $('app').appendChild(o);
+  if (res.pc && $('rsC')) setTimeout(() => countUp($('rsC'), 0, res.pc, 900, '+'), 650);     /* las monedas y la experiencia suben contando */
+  if (res.xp && $('rsX')) setTimeout(() => countUp($('rsX'), 0, res.xp, 900, '+'), 800);
   const done = (fn) => () => { sfx('click'); o.remove(); fn && fn(); };
   $('rsOk').onclick = done(); if (again) $('rsAg').onclick = done(again);
   sfx(res.win ? 'win' : res.draw ? 'point' : 'lose'); if (res.win && !res.quit) confetti(o.querySelector('.stage'), ['#ffd400', '#fff', '#19e6a0', gc]);
