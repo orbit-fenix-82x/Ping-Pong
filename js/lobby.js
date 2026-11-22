@@ -170,9 +170,10 @@ export function openRankInfo() {
   const me = rankOf(P.rp);
   sc.body.innerHTML = '<div class="muted c">' + esc(t('rank_how')) + '</div>';
   TI.forEach((x, i) => {
-    const li = document.createElement('div'); li.className = 'li' + (me.t === i ? ' me' : '');
+    const li = document.createElement('div'); li.className = 'li rk' + (me.t === i ? ' me' : '');
     const from = i < 7 ? TI.slice(0, i).reduce((a, y) => a + y.cost * 4, 0) : LEGEND_AT;
-    li.innerHTML = badge(i, i < 7 ? 0 : -1, 54, true) + '<div class="grow"><b>' + esc(i === 7 ? t('rank_7') : t('rank_' + i)) + '</b><small>' + fmt(from) + '+ RP' + (i < 7 ? ' · ' + x.cost + ' RP / ' + t('division') : '') + '</small></div>' + (me.t === i ? '<span class="chip">' + esc(rankName(me)) + '</span>' : '');
+    li.innerHTML = badge(i, -1, 54, true) + '<div class="grow"><b>' + esc(i === 7 ? t('rank_7') : t('rank_' + i)) + '</b><small>' + fmt(from) + '+ RP' + (i < 7 ? ' · ' + x.cost + ' RP / ' + t('division') : '') + '</small></div>' + (me.t === i ? '<span class="chip">' + esc(rankName(me)) + '</span>' : '') +
+      (i < 7 ? '<div class="rkd">' + [0, 1, 2, 3].map((d) => '<div class="dv' + (me.i === i * 4 + d ? ' me' : me.i < i * 4 + d ? ' lock' : '') + '">' + badge(i, d, 40, true) + '<small>' + fmt(from + d * x.cost) + ' RP</small></div>').join('') + '</div>' : '');   /* las 4 divisiones (I, II, III, IV) de cada rango */
     sc.body.appendChild(li);
   });
 }
