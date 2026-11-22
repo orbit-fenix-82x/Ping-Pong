@@ -29,6 +29,14 @@ const CSS = `
 .fxc b{display:block;height:100%;width:100%;background:var(--c);border-radius:5px}
 @keyframes fxIn{0%{opacity:0;transform:scale(.6)}100%{opacity:1;transform:scale(1)}}
 
+/* ---------- lista de rangos: las 4 divisiones de cada uno ---------- */
+.li.rk{flex-wrap:wrap}
+.rkd{flex-basis:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px}
+.rkd .dv{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border-radius:12px;background:rgba(4,6,30,.5);border:1px solid rgba(120,160,255,.25)}
+.rkd .dv small{display:block;margin:0;font-size:10px;color:var(--mut);white-space:nowrap}
+.rkd .dv.lock{opacity:.5}
+.rkd .dv.me{border-color:var(--gold);box-shadow:0 0 12px rgba(255,194,26,.5);background:rgba(60,40,0,.45)}
+
 /* ---------- pantalla de resultado ---------- */
 #result>*{position:relative;z-index:1}
 #result.win{background:radial-gradient(ellipse at 50% 34%,rgba(255,190,40,.5),rgba(40,14,70,.94) 68%)}
