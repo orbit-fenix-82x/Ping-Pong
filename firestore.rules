@@ -1,0 +1,154 @@
+rules_version = '2';
+// D.M.R PING PONG · reglas de Firestore  (pégalas en Firebase → Firestore Database → Reglas → Publicar)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signed()  { return request.auth != null; }
+    // Roles: el documento admins/<uid> SIN campo "role" es el DUEÑO. role:'admin' = administrador, role:'mod' = moderador.
+    function isStaff() { return signed() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function role()    { return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('role', 'owner'); }
+    function isOwner() { return isStaff() && role() == 'owner'; }
+    function isAdmin() { return isStaff() && role() in ['owner', 'admin']; }   // dueño o administrador
+    function isMod()   { return isStaff() && role() == 'mod'; }
+    function myId()    { return get(/databases/$(database)/documents/byUid/$(request.auth.uid)).data.id; }
+    function hasMy()   { return signed() && exists(/databases/$(database)/documents/byUid/$(request.auth.uid)); }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function num(v, max) { return v is number && v >= 0 && v <= max; }
+
+    // ---- administradores: solo se crean a mano desde la consola de Firebase
+    // El dueño se crea a mano en la consola. Desde el panel solo el dueño añade/cambia/quita admin y mod.
+    match /admins/{uid} {
+      allow get: if signed() && (request.auth.uid == uid || isOwner());
+      allow list: if isOwner();
+      allow create: if isOwner() && uid != request.auth.uid
+                    && request.resource.data.role in ['admin', 'mod']
+                    && request.resource.data.keys().hasOnly(['role', 'id', 'name', 'by', 'at']);
+      allow update: if isOwner() && uid != request.auth.uid && resource.data.get('role', 'owner') in ['admin', 'mod']
+                    && request.resource.data.role in ['admin', 'mod']
+                    && request.resource.data.keys().hasOnly(['role', 'id', 'name', 'by', 'at']);
+      allow delete: if isOwner() && uid != request.auth.uid && resource.data.get('role', 'owner') in ['admin', 'mod'];
+    }
+
+    // ---- nombres, correos (hash) y enlace uid→id: se crean una sola vez al registrarse
+    match /names/{n} {
+      allow get: if signed();
+      allow create: if signed() && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['uid', 'id']);
+      allow update, delete: if isAdmin();
+    }
+    match /emails/{e} {
+      allow get: if true;                       // solo para avisar "correo ya usado" (es un hash)
+      allow create: if signed() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+    match /byUid/{uid} {
+      allow get: if signed() && (request.auth.uid == uid || isAdmin());
+      allow create: if signed() && request.auth.uid == uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- perfiles de jugadores
+    match /players/{id} {
+      allow get, list: if signed();
+      allow create: if signed() && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.id == id
+                    && !('ver' in request.resource.data) && !('gver' in request.resource.data) && !('hidden' in request.resource.data);
+      allow update: if isAdmin() ||
+        (isMod() && changed().hasOnly(['hidden'])) ||
+        (signed() && resource.data.uid == request.auth.uid
+         && !changed().hasAny(['ver', 'gver', 'hidden', 'gx', 'uid', 'id', 'createdAt'])
+         && num(request.resource.data.rp, 100000) && num(request.resource.data.pc, 10000000) && num(request.resource.data.gems, 1000000)
+         && request.resource.data.name is string && request.resource.data.name.size() <= 16);
+      allow delete: if isAdmin();
+    }
+
+    // ---- estrellas, solicitudes de amistad
+    match /stars/{sid} {
+      allow read: if signed();
+      allow create: if hasMy() && request.resource.data.from == myId() && sid == myId() + '_' + request.resource.data.to;
+      allow delete: if isAdmin();
+    }
+    match /reqs/{rid} {
+      allow read: if signed();
+      allow create: if hasMy() && request.resource.data.from == myId();
+      allow update, delete: if hasMy() && (resource.data.to == myId() || resource.data.from == myId()) || isAdmin();
+    }
+
+    // ---- buzón (mensajes y regalos del administrador)
+    match /inbox/{mid} {
+      allow read: if signed() && (resource.data.toUid == request.auth.uid || isAdmin());
+      allow create: if isAdmin();
+      allow update: if signed() && resource.data.toUid == request.auth.uid
+                    && changed().hasOnly(['read', 'claimed']) && (resource.data.get('claimed', false) == false);
+      allow delete: if isAdmin() || (signed() && resource.data.toUid == request.auth.uid);
+    }
+
+    // ---- avisos: todos los jugadores los leen; solo dueño/administrador los crean, editan o retiran
+    match /announcements/{aid} {
+      allow read: if signed();
+      allow create: if isAdmin() && request.resource.data.keys().hasOnly(['title', 'text', 'type', 'at', 'by'])
+                    && request.resource.data.title is string && request.resource.data.title.size() <= 80
+                    && request.resource.data.text is string && request.resource.data.text.size() <= 600
+                    && request.resource.data.type in ['info', 'mant', 'upd', 'event', 'warn'];
+      allow update: if isAdmin() && changed().hasOnly(['title', 'text', 'type'])
+                    && request.resource.data.title.size() <= 80 && request.resource.data.text.size() <= 600
+                    && request.resource.data.type in ['info', 'mant', 'upd', 'event', 'warn'];
+      allow delete: if isAdmin();
+    }
+
+    // ---- baneos: cualquier jugador con cuenta consulta el suyo al entrar; el personal los lista.
+    //      El moderador solo crea baneos TEMPORALES (máx. 30 días). Quitar un ban: dueño/administrador.
+    match /bans/{bid} {
+      allow get: if signed();
+      allow list: if isStaff();
+      allow create, update: if hasMy() && request.resource.data.by == myId()
+                    && request.resource.data.keys().hasOnly(['perm', 'until', 'reason', 'at', 'by'])
+                    && request.resource.data.reason is string && request.resource.data.reason.size() <= 200
+                    && (isAdmin() ||
+                        (isMod() && request.resource.data.perm == false && request.resource.data.until is number
+                         && request.resource.data.until <= request.time.toMillis() + 2592000000));
+      allow delete: if isAdmin();
+    }
+
+    // ---- registro de acciones: el personal ESCRIBE (solo con su propio ID); dueño/administrador LEEN.
+    //      Nadie puede editarlo ni borrarlo desde el juego.
+    match /adminLog/{lid} {
+      allow read: if isAdmin();
+      allow create: if isStaff() && hasMy() && request.resource.data.by == myId()
+                    && request.resource.data.keys().hasOnly(['by', 'a', 'to', 'at', 'why'])
+                    && request.resource.data.at is number;
+      allow update, delete: if false;
+    }
+
+    // ---- reportes: cualquiera con cuenta puede crear; el personal los ve y cambia su estado
+    //      (new = pendiente, rev = revisado, ok = resuelto, no = descartado). Borrar: dueño/administrador.
+    match /reports/{rid} {
+      allow create: if hasMy() && request.resource.data.from == myId();
+      allow read: if isStaff();
+      allow update: if isStaff() && hasMy() && changed().hasOnly(['st', 'rby', 'rat'])
+                    && request.resource.data.st in ['new', 'rev', 'ok', 'no'] && request.resource.data.rby == myId();
+      allow delete: if isAdmin();
+    }
+
+    // ---- partidas en línea (solo "presentan" a los dos jugadores; el juego va por WebRTC)
+    match /rooms/{rid} {
+      allow read: if signed();
+      allow create: if hasMy() && request.resource.data.host == myId();
+      allow update: if hasMy() && resource.data.guest == myId() && changed().hasOnly(['answer']);
+      allow delete: if hasMy() && resource.data.host == myId();
+    }
+    match /invites/{iid} {
+      allow read: if hasMy() && (resource.data.to == myId() || resource.data.from == myId());
+      allow list: if signed();
+      allow create: if hasMy() && request.resource.data.from == myId();
+      allow update, delete: if hasMy() && (resource.data.to == myId() || resource.data.from == myId());
+    }
+    match /queue/{qid} {
+      allow read: if signed();
+      allow write: if hasMy() && qid == myId();
+    }
+
+    // ---- todo lo demás: cerrado
+    match /{document=**} { allow read, write: if false; }
+  }
+}
